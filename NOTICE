@@ -1,0 +1,7 @@
+Sift
+Copyright 2026 Mohamed Shalan
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+Files under designs/ that name an upstream project keep that project's
+copyright and license. The notice is in the header of each file.

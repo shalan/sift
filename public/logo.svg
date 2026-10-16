@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Sift">
+  <rect width="128" height="128" rx="28" fill="#141311"/>
+  <circle cx="39" cy="26" r="4.2" fill="#f4efe6"/>
+  <circle cx="64" cy="20" r="4.2" fill="#f4efe6"/>
+  <circle cx="89" cy="26" r="4.2" fill="#f4efe6"/>
+  <defs>
+    <clipPath id="sift-bowl">
+      <path d="M30 44h68L79 78H49L30 44z"/>
+    </clipPath>
+  </defs>
+  <path d="M30 44h68L79 78H49L30 44z" fill="#2a241c"/>
+  <g clip-path="url(#sift-bowl)" stroke="#e0a45a" stroke-width="1.35" fill="none" stroke-linecap="square">
+    <path d="M22 54h84M22 64h84M22 74h84"/>
+    <path d="M46 40v42M58 40v42M70 40v42M82 40v42"/>
+  </g>
+  <path d="M30 44h68L79 78H49L30 44z" fill="none" stroke="#e0a45a" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M32 90h64M32 108h64" stroke="#e0a45a" stroke-width="1.6" stroke-linecap="round"/>
+  <rect x="38" y="93.5" width="14" height="11" rx="1.6" fill="#f4efe6"/>
+  <rect x="57" y="93.5" width="14" height="11" rx="1.6" fill="#f4efe6"/>
+  <rect x="76" y="93.5" width="14" height="11" rx="1.6" fill="#e0a45a"/>
+</svg>

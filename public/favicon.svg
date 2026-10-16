@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Sift">
+  <rect width="32" height="32" rx="8" fill="#141311"/>
+  <path fill="#e0a45a" d="M5 8h22L20.4 18.2h-8.8L5 8z"/>
+  <rect x="7.4" y="21.2" width="4.4" height="3.6" rx="0.7" fill="#f4efe6"/>
+  <rect x="13.8" y="21.2" width="4.4" height="3.6" rx="0.7" fill="#f4efe6"/>
+  <rect x="20.2" y="21.2" width="4.4" height="3.6" rx="0.7" fill="#e0a45a"/>
+</svg>

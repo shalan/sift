@@ -7,14 +7,18 @@
  *
  *   node --experimental-strip-types scripts/bench-delay.ts [design ...]
  *   node --experimental-strip-types scripts/bench-delay.ts --modes [design ...]
+ *   node --experimental-strip-types scripts/bench-delay.ts --modes --from pic16
  *
- * The default run is `--opt area`. `--modes` maps each design once in area,
- * once in delay, and once in load, and compares all three with one Yosys run.
+ * The default run is `--opt area` with the mode free. `--modes` pins the mode
+ * to area, then delay, then load. Each of those runs also passes `--opt area`
+ * and `--recover`, and every map repairs max capacitance and max transition.
+ * `--from` keeps the rows already in modes.json and starts at that design.
  */
 import { spawnSync } from "node:child_process";
 import {
   appendFileSync,
   closeSync,
+  existsSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -251,7 +255,7 @@ function run(
   err: string,
   limitMs: number,
   echoErr = false,
-): { s: number; status: number } {
+): { s: number; status: number; error: string } {
   const outFd = openSync(out, "w");
   const errFd = echoErr ? -1 : openSync(err, "w");
   const start = Date.now();
@@ -263,7 +267,10 @@ function run(
       timeout: limitMs,
     });
     status = child.status ?? 1;
-    if (child.error) error = child.error.message;
+    if (child.error) {
+      error = child.error.message;
+      if ((child.error as NodeJS.ErrnoException).code === "ETIMEDOUT") status = 124;
+    }
   } finally {
     closeSync(outFd);
     if (errFd >= 0) closeSync(errFd);
@@ -272,7 +279,7 @@ function run(
     if (errFd >= 0) appendFileSync(err, `\n${error}\n`);
     else process.stderr.write(`${error}\n`);
   }
-  return { s: (Date.now() - start) / 1000, status };
+  return { s: (Date.now() - start) / 1000, status, error };
 }
 
 function parsePower(log: string): Power | null {
@@ -387,7 +394,11 @@ function uw(watts: number): string {
 }
 
 function tail(path: string): string {
-  return readFileSync(path, "utf8").trim().slice(-500);
+  try {
+    return readFileSync(path, "utf8").trim().slice(-500);
+  } catch {
+    return "";
+  }
 }
 
 function wordAt(text: string, index: number, word: string): boolean {
@@ -615,6 +626,7 @@ interface ModePoint {
   slack: number;
   slew: number;
   powerW: number;
+  recipe: string;
   error?: string;
 }
 
@@ -638,9 +650,10 @@ function runFixedModes(
   slew: number,
   load: number,
   order: Map<string, string[]>,
+  prior: { yosys: YosysPoint[]; modes: ModePoint[] } = { yosys: [], modes: [] },
 ): void {
-  const yosysRows: YosysPoint[] = [];
-  const modeRows: ModePoint[] = [];
+  const yosysRows: YosysPoint[] = [...prior.yosys];
+  const modeRows: ModePoint[] = [...prior.modes];
   const outDir = join(ROOT, "bench/delay");
   mkdirSync(outDir, { recursive: true });
   for (const design of designs) {
@@ -676,6 +689,9 @@ function runFixedModes(
           "sky130",
           "--mode",
           mode,
+          "--opt",
+          "area",
+          "--recover",
           "--period",
           String(PERIOD_NS),
           "--max-fanout",
@@ -693,11 +709,13 @@ function runFixedModes(
         ],
         siftOut,
         siftErr,
-        2_400_000,
+        10_800_000,
         true,
       );
-      if (sift.status !== 0 && sift.status !== 1) {
-        modeRows.push(failedMode(design, mode, `sift exit ${sift.status}: ${tail(siftErr)}`));
+      if (sift.error || (sift.status !== 0 && sift.status !== 1)) {
+        const why = sift.error || `sift exit ${sift.status}`;
+        const detail = tail(siftErr);
+        modeRows.push(failedMode(design, mode, detail ? `${why}: ${detail}` : why));
         continue;
       }
       let report: SiftJson;
@@ -752,6 +770,7 @@ function runFixedModes(
         slack: sta.slack,
         slew: sta.slew,
         powerW: sta.power?.totalW ?? NaN,
+        recipe: recipeOf(report),
         error: Number.isFinite(sta.area) ? undefined : "sta failed",
       };
       modeRows.push(point);
@@ -786,6 +805,7 @@ function failedMode(
     slack: NaN,
     slew: NaN,
     powerW: NaN,
+    recipe: "",
     error,
   };
 }
@@ -805,7 +825,7 @@ function renderModes(
   );
   lines.push("");
   lines.push(
-    `Sift is one map per mode, \`--mode area\`, \`--mode delay\`, or \`--mode load\`, with max fanout ${SIFT_FANOUT}. Arithmetic stays at the default ripple adder and array multiplier. There is no \`--opt\` search, no clock gating, and no area recovery. \`area\` picks the smallest legal cell. \`delay\` sizes from a fanout count. \`load\` uses the same goal as delay, but each gate's delay is the Liberty NLDM table at that gate's input slew and output capacitance. Yosys is \`synth -flatten\`, \`dfflibmap\`, then \`abc -D ${PERIOD_PS}\` once per design, and that one result is the right-hand side of every table.`,
+    `Each Sift run pins \`--mode\` to area, delay, or load, then runs \`--opt area\` and \`--recover\`. Max fanout stays ${SIFT_FANOUT}. The search may change arithmetic, the adder bias, and clock gating. It does not leave the pinned mode, and it does not turn recovery off. Every map also sizes, buffers, or clones a driver that misses max capacitance or max transition. \`area\` picks the smallest legal cell. \`delay\` sizes from a fanout count. \`load\` uses the same goal as delay, but each gate's delay is the Liberty NLDM table at that gate's input slew and output capacitance. Yosys is \`synth -flatten\`, \`dfflibmap\`, then \`abc -D ${PERIOD_PS}\` once per design, and that one result is the right-hand side of every table.`,
   );
   lines.push("");
   lines.push(
@@ -897,14 +917,40 @@ function main(): void {
   const order = pinOrder();
   const yosysOnly = process.argv.includes("--yosys-only");
   const modes = process.argv.includes("--modes");
-  const want = new Set(
-    process.argv
-      .slice(2)
-      .filter((arg) => arg !== "--report-only" && arg !== "--yosys-only" && arg !== "--modes"),
-  );
+  const args = process.argv.slice(2);
+  let fromId = "";
+  const want = new Set<string>();
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? "";
+    if (arg === "--report-only" || arg === "--yosys-only" || arg === "--modes") continue;
+    if (arg === "--from") {
+      fromId = args[index + 1] ?? "";
+      index += 1;
+      continue;
+    }
+    want.add(arg);
+  }
   if (modes) {
-    const designs = DESIGNS.filter((design) => want.size === 0 || want.has(design.id));
-    runFixedModes(designs, libPath, constr, slew, load, order);
+    let designs = DESIGNS.filter((design) => want.size === 0 || want.has(design.id));
+    let prior: { yosys: YosysPoint[]; modes: ModePoint[] } = { yosys: [], modes: [] };
+    if (fromId) {
+      const start = designs.findIndex((design) => design.id === fromId);
+      if (start < 0) throw new Error(`--from ${fromId} is not in this run`);
+      designs = designs.slice(start);
+      const savedPath = join(WORK, "modes.json");
+      if (existsSync(savedPath)) {
+        const saved = JSON.parse(readFileSync(savedPath, "utf8")) as {
+          yosys: YosysPoint[];
+          modes: ModePoint[];
+        };
+        const skip = new Set(designs.map((design) => design.id));
+        prior = {
+          yosys: saved.yosys.filter((row) => !skip.has(row.id)),
+          modes: saved.modes.filter((row) => !skip.has(row.id)),
+        };
+      }
+    }
+    runFixedModes(designs, libPath, constr, slew, load, order, prior);
     return;
   }
   if (yosysOnly) {

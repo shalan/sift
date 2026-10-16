@@ -2081,16 +2081,29 @@ export function mapDesign(
       const baseHits = allHits();
       const baseOver = baseHits.length;
       const baseTran = tranCount(baseHits);
+      // A rejected swap stays rejected. Later swaps only add delay and slew,
+      // so a setup or electrical miss cannot become legal. A hold miss can,
+      // because a slower data path can repair it, and those swaps are tried again.
+      const dead = new Set<string>();
+      const holdFloor = holdBefore >= 0 ? -1e-9 : holdBefore - 1e-9;
       for (let pass = 0; pass < 48 && steps < 48; pass += 1) {
-        const moves: { save: number; apply: () => void; revert: () => void }[] = [];
+        const moves: {
+          key: string;
+          save: number;
+          apply: () => void;
+          revert: () => void;
+        }[] = [];
         for (const gate of combo.gates) {
           const cell = library.cells.find((item) => item.name === gate.cell);
           if (!cell) continue;
           const options = byArea(library.cells.filter((item) => item.family === cell.family));
           const prev = options[options.findIndex((item) => item.name === cell.name) - 1];
           if (!prev || prev.area >= cell.area - 1e-9) continue;
+          const key = `g:${gate.output}->${prev.name}`;
+          if (dead.has(key)) continue;
           const old = gate.cell;
           moves.push({
+            key,
             save: cell.area - prev.area,
             apply: () => {
               gate.cell = prev.name;
@@ -2111,7 +2124,10 @@ export function mapDesign(
           );
           const prev = options[options.findIndex((item) => item.name === cell.name) - 1];
           if (!prev || prev.area >= cell.area - 1e-9) continue;
+          const key = `f:${flop.q}->${prev.name}`;
+          if (dead.has(key)) continue;
           moves.push({
+            key,
             save: cell.area - prev.area,
             apply: () => {
               chosen.set(flop.q, prev);
@@ -2128,28 +2144,33 @@ export function mapDesign(
         for (const move of moves) {
           move.apply();
           const trial = evaluate();
-          const overs = allHits();
-          const holdFloor = holdBefore >= 0 ? -1e-9 : holdBefore - 1e-9;
-          if (
-            (trial.timing?.slack ?? -1) >= -1e-9 &&
-            (trial.timing?.holdSlack ?? -1) >= holdFloor &&
-            overs.length <= baseOver &&
-            tranCount(overs) <= baseTran &&
-            placedArea() < before - 1e-6
-          ) {
-            delay = trial.delay;
-            rise = trial.rise;
-            fall = trial.fall;
-            path = trial.path;
-            risePath = trial.risePath;
-            fallPath = trial.fallPath;
-            timing = trial.timing;
-            ends = trial.ends;
-            steps += 1;
-            took = true;
-            break;
+          const slackOk = (trial.timing?.slack ?? -1) >= -1e-9;
+          const holdOk = (trial.timing?.holdSlack ?? -1) >= holdFloor;
+          if (slackOk && holdOk) {
+            const overs = allHits();
+            if (
+              overs.length <= baseOver &&
+              tranCount(overs) <= baseTran &&
+              placedArea() < before - 1e-6
+            ) {
+              delay = trial.delay;
+              rise = trial.rise;
+              fall = trial.fall;
+              path = trial.path;
+              risePath = trial.risePath;
+              fallPath = trial.fallPath;
+              timing = trial.timing;
+              ends = trial.ends;
+              steps += 1;
+              took = true;
+              break;
+            }
+            move.revert();
+            dead.add(move.key);
+            continue;
           }
           move.revert();
+          if (!slackOk) dead.add(move.key);
         }
         if (!took) break;
       }

@@ -64,6 +64,10 @@ describe("opt", () => {
     assert.equal(result.recipe.arith, "area");
     assert.ok(result.report.area <= (result.trials[0]?.area ?? 0) + 0.05);
     assert.ok((result.report.timing?.slack ?? -1) >= 0);
+    assert.ok(
+      result.trials.every((trial) => trial.because !== "adder bias toward area"),
+      result.trials.map((trial) => trial.because).join(", "),
+    );
   });
 
   it("switches to faster arithmetic when slack is the objective", () => {

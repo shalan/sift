@@ -209,7 +209,12 @@ function candidates(
     if (flops && !best.gate) {
       push({ ...cloneRecipe(best), gate: true }, "clock-gate recirculating flops");
     }
-    if (adders && best.ppa !== 0) {
+    // ppa only changes tuneAdders. With positive slack, a ripple site stays
+    // ripple for every bias, so the trial would repeat the map and then drop it.
+    const ripple =
+      (report.timing?.slack ?? 0) > 0 &&
+      (netlist.adders ?? []).every((site) => site.kind === "ripple");
+    if (adders && best.ppa !== 0 && !ripple) {
       push({ ...cloneRecipe(best), ppa: 0 }, "adder bias toward area");
     }
     if (best.arith === "delay" && elaborate) {

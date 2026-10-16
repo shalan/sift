@@ -156,7 +156,7 @@ docs/          user guide, developer guide, logo
 bench/delay/   published delay comparison
 ```
 
-The bench examples live in `src/synth/examples.ts`. `designs/` holds the larger modules as files the CLI can read. `cpu8`, `dsp8`, `fir10`, and `xfir` are proved against the Verilog by `npm run test:designs`. `uart_apb`, `risc8`, `pic16`, `pic1826`, `p16c5x`, `arlet6502`, `x18`, and `chacha` are on the delay bench. `pic16` and `p16c5x` rename the clock port `Clk` to `clk`. `pic1826` stubs the missing stack, ROM, and RAM. `x18` uses the address in place of the missing program image.
+The bench examples live in `src/synth/examples.ts`. `designs/` holds the larger modules as files the CLI can read. `npm run test:designs` maps every file there and, when Yosys and `yosys-abc` are installed, proves it against the Verilog with ABC. CI runs that proof on every push. `pic16` and `p16c5x` rename the clock port `Clk` to `clk`. `pic1826` stubs the missing stack, ROM, and RAM. `x18` uses the address in place of the missing program image.
 
 ## Limits
 

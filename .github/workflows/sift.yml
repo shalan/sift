@@ -1,0 +1,25 @@
+name: sift
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Yosys and ABC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yosys
+          yosys -V
+          command -v yosys-abc
+      - name: Map the designs and prove them
+        run: stdbuf -oL -eL npm run test:sift
+        env:
+          SIFT_REQUIRE_LEC: "1"

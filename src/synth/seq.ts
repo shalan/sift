@@ -700,6 +700,60 @@ function capOf(
   return cap;
 }
 
+/** Fanout of each net, rebuilt once per timing eval. Same totals as `capOf` / `loadsOf`. */
+function loadFan(combo: MapReport | null, outputs: readonly string[], library: Library) {
+  const cells = new Map(library.cells.map((cell) => [cell.name, cell]));
+  const users = new Map<string, MapGate[]>();
+  const drivesByWire = new Map<string, { name: string; wire: string }[]>();
+  const driveByName = new Map<string, { name: string; wire: string }>();
+  if (combo) {
+    for (const gate of combo.gates) {
+      for (const net of gate.inputs) {
+        const list = users.get(net);
+        if (list) list.push(gate);
+        else users.set(net, [gate]);
+      }
+    }
+    for (const drive of combo.drives) {
+      driveByName.set(drive.name, drive);
+      const list = drivesByWire.get(drive.wire);
+      if (list) list.push(drive);
+      else drivesByWire.set(drive.wire, [drive]);
+    }
+  }
+  const outputSet = new Set(outputs);
+  const pinCap = (name: string, outputLoad?: number) => {
+    let cap = outputSet.has(name) ? (outputLoad ?? portCap(library)) : 0;
+    let pins = outputSet.has(name) ? 1 : 0;
+    for (const gate of users.get(name) ?? []) {
+      cap += cells.get(gate.cell)?.cap ?? 1;
+      pins += 1;
+    }
+    const driven = drivesByWire.get(name)?.length ?? 0;
+    if (driven > 0) {
+      cap += driven * (outputLoad ?? portCap(library));
+      pins += driven;
+    }
+    return { cap, pins };
+  };
+  return {
+    drive: (name: string) => driveByName.get(name),
+    loads: (name: string) => {
+      const pins =
+        (outputSet.has(name) ? 1 : 0) +
+        (users.get(name)?.length ?? 0) +
+        (drivesByWire.get(name)?.length ?? 0);
+      return Math.max(pins, 1);
+    },
+    cap: (name: string, outputLoad?: number, wireLoad: WireLoad | null = null, capPerFanout = 0) => {
+      const { cap, pins } = pinCap(name, outputLoad);
+      if (capPerFanout > 0) return cap + pins * capPerFanout;
+      if (wireLoad && pins > 0) return cap + wireOf(wireLoad, pins).cap;
+      return cap;
+    },
+  };
+}
+
 function flopOptions(library: Library, flop: Flop): FlopCell[] {
   const reset = flop.kind === "dff" && flop.rst ? (flop.rstValue ?? 0) : null;
   const family = flop.kind === "latch" ? "LATCH" : flop.rst ? "ADFF" : "DFF";
@@ -1447,11 +1501,17 @@ export function mapDesign(
   const flopOutput = new Set(
     flops.filter((flop) => netlist.outputs.includes(flop.q)).map((flop) => flop.q),
   );
+  let fan: ReturnType<typeof loadFan> | null = null;
   const weightOf = (name: string, tabular = false) => {
     if (constraints.bufferOutputs && flopOutput.has(name)) {
       const buffer = byArea(library.cells.filter(isBuffer))[0];
       const cap = buffer?.cap ?? inverterOf(library).cap;
       return model === "cap" || tabular ? (cap > 0 ? cap : portCap(library)) : 1;
+    }
+    if (fan) {
+      return model === "cap" || tabular
+        ? fan.cap(name, constraints.outputLoad, wire, constraints.capPerFanout)
+        : fan.loads(name);
     }
     return model === "cap" || tabular
       ? capOf(
@@ -1476,7 +1536,10 @@ export function mapDesign(
     setup: icg.setup,
     clkInv: icg.clkInv,
   }));
-  const evaluate = () => {
+  const evaluate = (paths = true) => {
+    fan = combo ? loadFan(combo, netlist.outputs, library) : null;
+    try {
+    const driveOf = (name: string) => fan?.drive(name);
     let delay = combo?.delay ?? 0;
     let rise = combo?.rise ?? 0;
     let fall = combo?.fall ?? 0;
@@ -1668,13 +1731,17 @@ export function mapDesign(
               ]
             : [{ label: name, at, incr: at, slew: 0, edge: which }];
         const rose =
-          graph && direct === null
-            ? withLaunch(graph.pathTo(wire, name, "rise"))
-            : bare(rise, "rise");
+          !paths
+            ? []
+            : graph && direct === null
+              ? withLaunch(graph.pathTo(wire, name, "rise"))
+              : bare(rise, "rise");
         const fell =
-          graph && direct === null
-            ? withLaunch(graph.pathTo(wire, name, "fall"))
-            : bare(fall, "fall");
+          !paths
+            ? []
+            : graph && direct === null
+              ? withLaunch(graph.pathTo(wire, name, "fall"))
+              : bare(fall, "fall");
         points.push({
           name,
           wire,
@@ -1705,7 +1772,7 @@ export function mapDesign(
         const cell = chosen.get(flop.q);
         if (!cell) continue;
         const endId = `${flop.q}/D`;
-        const drive = combo?.drives.find((item) => item.name === flop.d);
+        const drive = driveOf(flop.d);
         if (drive) {
           const decision = openPath(endId, "setup", null);
           if (decision === "skip") continue;
@@ -1775,7 +1842,7 @@ export function mapDesign(
           push(out, out, 0, hopped, null, cyclesFor(multi, out, `${out}/Q`).setup);
           continue;
         }
-        const drive = combo?.drives.find((item) => item.name === out);
+        const drive = driveOf(out);
         const decision = openPath(out, "setup", null);
         if (!drive || decision === "skip") continue;
         const graph = graphFor(decision, "max");
@@ -1784,7 +1851,7 @@ export function mapDesign(
       }
       for (const end of enables) {
         const endId = `${end.id}/EN`;
-        const drive = combo?.drives.find((item) => item.name === end.en);
+        const drive = driveOf(end.en);
         const decision = openPath(endId, "setup", null);
         if (decision === "skip") continue;
         const pinSetup = end.setup + end.clkInv;
@@ -1826,7 +1893,7 @@ export function mapDesign(
         const cell = chosen.get(flop.q);
         if (!cell) continue;
         const endId = `${flop.q}/D`;
-        const drive = combo?.drives.find((item) => item.name === flop.d);
+        const drive = driveOf(flop.d);
         const start = drive ? null : startPin(flop.d, qNames);
         const decision = openPath(endId, "hold", start);
         if (decision === "skip") continue;
@@ -1969,6 +2036,9 @@ export function mapDesign(
       }
     }
     return { delay, rise, fall, path, risePath, fallPath, timing, ends };
+    } finally {
+      fan = null;
+    }
   };
   const clockPin = constraints.clockTransition ?? librarySlew(library);
   const drivenSlews = (): Map<string, number> => {
@@ -2054,7 +2124,15 @@ export function mapDesign(
     }
     return hits;
   };
-  const allHits = (): LimitHit[] => [...gateHits(), ...flopHits()];
+  const allHits = (): LimitHit[] => {
+    const previous = fan;
+    if (!fan && combo) fan = loadFan(combo, netlist.outputs, library);
+    try {
+      return [...gateHits(), ...flopHits()];
+    } finally {
+      fan = previous;
+    }
+  };
   const tranCount = (hits: readonly LimitHit[]): number =>
     hits.filter((hit) => hit.maxTran !== null).length;
   const evaluated = evaluate();
@@ -2143,7 +2221,7 @@ export function mapDesign(
         let took = false;
         for (const move of moves) {
           move.apply();
-          const trial = evaluate();
+          const trial = evaluate(false);
           const slackOk = (trial.timing?.slack ?? -1) >= -1e-9;
           const holdOk = (trial.timing?.holdSlack ?? -1) >= holdFloor;
           if (slackOk && holdOk) {
@@ -2153,14 +2231,15 @@ export function mapDesign(
               tranCount(overs) <= baseTran &&
               placedArea() < before - 1e-6
             ) {
-              delay = trial.delay;
-              rise = trial.rise;
-              fall = trial.fall;
-              path = trial.path;
-              risePath = trial.risePath;
-              fallPath = trial.fallPath;
-              timing = trial.timing;
-              ends = trial.ends;
+              const full = evaluate(true);
+              delay = full.delay;
+              rise = full.rise;
+              fall = full.fall;
+              path = full.path;
+              risePath = full.risePath;
+              fallPath = full.fallPath;
+              timing = full.timing;
+              ends = full.ends;
               steps += 1;
               took = true;
               break;

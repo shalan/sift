@@ -226,8 +226,8 @@ function candidates(
     if (report.timing && report.timing.slack > 0.02 && !best.recover) {
       push({ ...cloneRecipe(best), recover: true }, "downsize cells that have slack");
     }
-    if (best.mode !== "area" && (best.maxFanout ?? DEFAULT_MAX_FANOUT) < 9 && roomy) {
-      push({ ...cloneRecipe(best), maxFanout: 9 }, "looser fanout");
+    if (best.mode !== "area" && (best.maxFanout ?? DEFAULT_MAX_FANOUT) < DEFAULT_MAX_FANOUT && roomy) {
+      push({ ...cloneRecipe(best), maxFanout: DEFAULT_MAX_FANOUT }, "looser fanout");
     }
   }
   return moves;

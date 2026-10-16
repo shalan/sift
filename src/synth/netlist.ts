@@ -179,15 +179,17 @@ export function deadGates(netlist: Netlist): string[] {
 
 export interface SweptFlop {
   id: string;
-  reason: "no reader" | "not observable" | "duplicate";
+  reason: "no reader" | "not observable" | "duplicate" | "constant";
   sameAs?: string;
 }
 
 /**
- * Drop flip-flops that are unread or copies of another flop.
+ * Drop flip-flops that are unread, constant, or copies of another flop.
  * A flop is unread when every path to an output is blocked by the mux select
  * that guards it. A flop is a copy when its data and reset match another flop,
- * including a clock-enable mux that holds its own Q.
+ * including a clock-enable mux that holds its own Q. A flop is constant when
+ * its data is 0, or when an async reset value equals that same constant.
+ * A constant 1 with no reset stays, because the simulator starts flops at 0.
  */
 export function sweepState(
   gates: Gate[],
@@ -196,7 +198,11 @@ export function sweepState(
   inputs: readonly string[] = [],
 ): { gates: Gate[]; flops: SweptFlop[]; adders: AdderSite[] } {
   const flops: SweptFlop[] = [];
-  const merged = mergeDuplicateFlops(gates, outputs, flops);
+  const tied = tieConstantFlops(gates, outputs, flops);
+  const merged = mergeDuplicateFlops(tied.gates, outputs, flops);
+  for (const [from, to] of tied.alias) {
+    if (!merged.alias.has(from)) merged.alias.set(from, to);
+  }
   const observable = observableGates(merged.gates, outputs, flops);
   const live = new Set<string>(["0", "1", ...inputs, ...observable.map((gate) => gate.id)]);
   const resolve = (net: string): string => {
@@ -225,6 +231,44 @@ export function sweepState(
     cout: result(site.cout),
   }));
   return { gates: observable, flops, adders: rewritten };
+}
+
+function tieConstantFlops(
+  gates: Gate[],
+  outputs: string[],
+  flops: SweptFlop[],
+): { gates: Gate[]; alias: Map<string, string> } {
+  const outputSet = new Set(outputs);
+  const alias = new Map<string, string>();
+  const next: Gate[] = [];
+  for (const gate of gates) {
+    if (gate.op !== "DFF") {
+      next.push(gate);
+      continue;
+    }
+    const data = gate.ins[0] ?? "0";
+    const reset = gate.ins.length >= 3 ? gate.ins[2] : undefined;
+    const value =
+      reset === undefined
+        ? data === "0"
+          ? "0"
+          : null
+        : (data === "0" || data === "1") && data === reset
+          ? data
+          : null;
+    if (value === null) {
+      next.push(gate);
+      continue;
+    }
+    flops.push({ id: gate.id, reason: "constant" });
+    if (outputSet.has(gate.id)) {
+      next.push({ id: gate.id, op: "INV", ins: [value === "0" ? "1" : "0"] });
+    }
+    else alias.set(gate.id, value);
+  }
+  if (alias.size === 0) return { gates: next, alias };
+  const resolve = (net: string): string => alias.get(net) ?? net;
+  return { gates: next.map((gate) => ({ ...gate, ins: gate.ins.map(resolve) })), alias };
 }
 
 function mergeDuplicateFlops(
@@ -463,10 +507,16 @@ function foldGuardedCones(gates: Gate[], outputs: Set<string>): Gate[] {
         }
       }
       if (!usesSelect || !readsState || cone.size === 0) return;
+      // The arm root may feed the mux we are splitting. Any other pin of that
+      // mux, and any other gate, is a real reader: folding a shared leaf
+      // under this select would also rewrite the other arm.
+      const muxGate = byId.get(mux);
       const leak = new Set<string>();
-      const spread = [];
+      const spread: string[] = [];
       for (const id of cone) {
-        if ((fanout.get(id) ?? []).some((user) => user !== mux && !cone.has(user))) {
+        const sharedPin = id !== root && (muxGate?.ins.includes(id) ?? false);
+        const outside = (fanout.get(id) ?? []).some((user) => user !== mux && !cone.has(user));
+        if (sharedPin || outside) {
           leak.add(id);
           spread.push(id);
         }
@@ -487,9 +537,32 @@ function foldGuardedCones(gates: Gate[], outputs: Set<string>): Gate[] {
       for (const id of cone) {
         if (leak.has(id)) continue;
         const known = valueMemo.get(`${id}\n${key}`) ?? null;
-        if (known === null) continue;
-        const c = known === 1 ? "1" : "0";
-        rewrites.set(id, { id, op: "AND", ins: [c, c] });
+        if (known !== null) {
+          const c = known === 1 ? "1" : "0";
+          rewrites.set(id, { id, op: "AND", ins: [c, c] });
+          continue;
+        }
+        // A mux whose select is fixed in this cone does not read the other arm.
+        const gate = byId.get(id);
+        if (gate?.op !== "MUX") continue;
+        const selNet = gate.ins[0] ?? "0";
+        const selVal =
+          selNet === "1"
+            ? 1
+            : selNet === "0"
+              ? 0
+              : selNet === sel
+                ? bit
+                : (valueMemo.get(`${selNet}\n${key}`) ?? null);
+        if (selVal !== 0 && selVal !== 1) continue;
+        const keep = selVal === 1 ? (gate.ins[1] ?? "0") : (gate.ins[2] ?? "0");
+        const dead = selVal === 1 ? (gate.ins[2] ?? "0") : (gate.ins[1] ?? "0");
+        if (dead === "0" || dead === "1") continue;
+        rewrites.set(id, {
+          id,
+          op: "MUX",
+          ins: [selVal === 1 ? "1" : "0", selVal === 1 ? keep : "0", selVal === 0 ? keep : "0"],
+        });
       }
     };
     for (const gate of current) {

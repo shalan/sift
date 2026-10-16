@@ -1716,7 +1716,7 @@ describe("verilog", () => {
     assert.equal(report.equiv.mismatches, 0);
   });
 
-  it("reads a memory word as a balanced one-hot", () => {
+  it("reads a memory word", () => {
     const net = parseVerilog(
       "module m(input clk, input [1:0] a, input we, input [3:0] d, output [3:0] y); reg [3:0] mem[3:0]; always @(posedge clk) if (we) mem[a] <= d; assign y = mem[a]; endmodule\n",
     );
@@ -1771,6 +1771,132 @@ describe("verilog", () => {
     const live = new Set([...added.inputs, ...added.gates.map((gate) => gate.id), "0", "1"]);
     for (const pin of [...site.a, ...site.b, site.cin]) assert.ok(live.has(pin), pin);
     assert.equal(mapDesign(added, "std", "area").equiv.mismatches, 0);
+  });
+
+  it("keeps a case default that still depends on the case select", () => {
+    const net = parseVerilog(`module m(
+      input clk, input reset_n, input cs, input we, input [7:0] addr, input [31:0] write_data,
+      output [31:0] read_data
+    );
+      reg [31:0] state;
+      reg [31:0] tmp_read_data;
+      always @(posedge clk) begin
+        if (!reset_n) state <= 0;
+        else state <= state + 32'd1;
+      end
+      always @* begin
+        tmp_read_data = 0;
+        if (cs && !we) begin
+          if ((addr >= 8'h80) && (addr <= 8'h8f)) tmp_read_data = state;
+          case (addr)
+            8'h00: tmp_read_data = 32'h63686163;
+            8'h09: tmp_read_data = {31'h0, state[0]};
+            default: begin end
+          endcase
+        end
+      end
+      assign read_data = tmp_read_data;
+    endmodule`);
+    const flops = net.gates.filter((gate) => gate.op === "DFF").map((gate) => gate.id);
+    assert.equal(flops.length, 32);
+    const word = 0xa5a5a5a5;
+    const run = (addr: number): number => {
+      const assign = new Map<string, 0 | 1>([
+        ["clk", 0],
+        ["reset_n", 1],
+        ["cs", 1],
+        ["we", 0],
+      ]);
+      for (let bit = 0; bit < 8; bit += 1) assign.set(`addr_${bit}`, (addr >> bit) & 1 ? 1 : 0);
+      for (let bit = 0; bit < 32; bit += 1) {
+        assign.set(`write_data_${bit}`, 0);
+        assign.set(`state_${bit}`, (word >> bit) & 1 ? 1 : 0);
+      }
+      return readBus(evalNetlist(net, assign), "read_data", 32) >>> 0;
+    };
+    assert.equal(run(0x80), word);
+    assert.equal(run(0x8f), word);
+    assert.equal(run(0x00), 0x63686163);
+    assert.equal(run(0x09), word & 1);
+    assert.equal(run(0x22), 0);
+  });
+
+  it("reads a variable index as a mux tree", () => {
+    const net = parseVerilog(`module m(input [1:0] s, input [3:0] d, output y);
+      assign y = d[s];
+    endmodule`);
+    assert.equal(net.gates.filter((gate) => gate.op === "MUX").length, 3);
+    assert.equal(
+      net.gates.some((gate) => gate.op === "AND" || gate.op === "OR"),
+      false,
+    );
+    const assign = new Map<string, 0 | 1>([
+      ["d_0", 0],
+      ["d_1", 0],
+      ["d_2", 1],
+      ["d_3", 0],
+      ["s_0", 0],
+      ["s_1", 1],
+    ]);
+    assert.equal(evalNetlist(net, assign).get("y"), 1);
+  });
+
+  it("ties a flop whose data is a constant", () => {
+    const zero = parseVerilog(`module m(input clk, output reg q);
+      always @(posedge clk) q <= 1'b0;
+    endmodule`);
+    assert.equal(
+      zero.gates.some((gate) => gate.op === "DFF"),
+      false,
+    );
+    assert.match(zero.warnings?.join("\n") ?? "", /removed constant flop 'q'/);
+    assert.equal(evalNetlist(zero, new Map([["clk", 0]])).get("q"), 0);
+
+    const held = parseVerilog(`module m(input clk, input rst, output reg q);
+      always @(posedge clk or posedge rst) if (rst) q <= 1'b1; else q <= 1'b1;
+    endmodule`);
+    assert.equal(
+      held.gates.some((gate) => gate.op === "DFF"),
+      false,
+    );
+    assert.equal(
+      evalNetlist(
+        held,
+        new Map([
+          ["clk", 0],
+          ["rst", 1],
+        ]),
+      ).get("q"),
+      1,
+    );
+
+    const armed = parseVerilog(`module m(input clk, output reg q);
+      always @(posedge clk) q <= 1'b1;
+    endmodule`);
+    assert.equal(
+      armed.gates.some((gate) => gate.op === "DFF"),
+      true,
+    );
+
+    const hidden = parseVerilog(`module m(input clk, input d, output y);
+      reg q;
+      always @(posedge clk) q <= 1'b0;
+      assign y = d & q;
+    endmodule`);
+    assert.equal(
+      hidden.gates.some((gate) => gate.op === "DFF"),
+      false,
+    );
+    assert.equal(
+      evalNetlist(
+        hidden,
+        new Map([
+          ["clk", 0],
+          ["d", 1],
+        ]),
+      ).get("y"),
+      0,
+    );
   });
 });
 

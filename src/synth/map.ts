@@ -17,7 +17,7 @@ import {
   type WireLoad,
 } from "./library.ts";
 
-export const DEFAULT_MAX_FANOUT = 4;
+export const DEFAULT_MAX_FANOUT = 20;
 
 const K = 4;
 
@@ -1436,8 +1436,12 @@ export interface LoadRelief {
 }
 
 /**
- * Move sinks off an illegal net. A buffer wins when it is legal and no heavier
- * than cloning the driver. Cloning is how a library with no usable buffer still splits.
+ * Move sinks off an illegal net. Buffers are scored at the driver slew after the
+ * load drops to the buffer pins. A legal plan beats one that only shrinks the
+ * load. Among legal plans the smallest area wins, and a buffer beats a clone at
+ * the same area. A layer that is still illegal is kept when it strictly cuts the
+ * driver load, so the next pass can add the next level of the tree. A clone has
+ * to make the copy legal. An illegal buffer does not replace a legal clone.
  */
 export function relieveNet(
   library: Library,
@@ -1456,38 +1460,49 @@ export function relieveNet(
   const useSlew =
     slewRepairable(library, query) && library.cells.some((cell) => isBuffer(cell) && cell.slew);
   const buffers = byArea(library.cells.filter((cell) => isBuffer(cell) && (!useSlew || cell.slew)));
-  let bestBuffer: LoadRelief | undefined;
-  let bestArea = Number.POSITIVE_INFINITY;
-  const consider = (buffer: Cell, groups: number[][]) => {
-    const driverLoad = extra + groups.length * buffer.cap;
-    if (!(driverLoad < totalLoad - 1e-12) || !holds(driverLoad)) return;
-    const area = groups.length * buffer.area;
-    if (area < bestArea - 1e-9) {
-      bestArea = area;
-      bestBuffer = { kind: "buffer", cell: buffer, groups };
-    }
-  };
+  let bestLegal: { relief: LoadRelief; area: number } | undefined;
+  let bestProgress: { relief: LoadRelief; area: number; driverLoad: number } | undefined;
+  const slewAt = (load: number): number =>
+    cloneAs?.slew ? estimateSlew(cloneAs, load, cloneSlew) : bufferSlew;
+  const groupLoad = (group: readonly number[]) =>
+    group.reduce((total, index) => total + (sinkCaps[index] ?? 0), 0);
   for (const buffer of buffers) {
-    const groups = packIndexes(sinkCaps, (load) =>
-      cellMeets(library, buffer, load, bufferSlew, query, mode),
+    let slew = slewAt(extra + buffer.cap);
+    let groups = packIndexes(sinkCaps, (load) =>
+      cellMeets(library, buffer, load, slew, query, mode),
     );
-    if (groups) consider(buffer, groups);
-  }
-  // The buffer's input slew is this driver's slew after the load drops, not the slew at the old load.
-  if (!bestBuffer && cloneAs?.slew) {
-    for (const buffer of buffers) {
-      const guess = estimateSlew(cloneAs, extra + buffer.cap, cloneSlew);
-      const groups = packIndexes(sinkCaps, (load) =>
-        cellMeets(library, buffer, load, guess, query, mode),
+    if (!groups) continue;
+    let driverLoad = extra + groups.length * buffer.cap;
+    for (let step = 0; step < 4; step += 1) {
+      const settled = slewAt(driverLoad);
+      if (Math.abs(settled - slew) <= 1e-6) break;
+      slew = settled;
+      const again = packIndexes(sinkCaps, (load) =>
+        cellMeets(library, buffer, load, slew, query, mode),
       );
-      if (!groups) continue;
-      const driverLoad = extra + groups.length * buffer.cap;
-      const settled = estimateSlew(cloneAs, driverLoad, cloneSlew);
-      const ready = groups.every((group) => {
-        const load = group.reduce((total, index) => total + (sinkCaps[index] ?? 0), 0);
-        return cellMeets(library, buffer, load, settled, query, mode);
-      });
-      if (ready) consider(buffer, groups);
+      if (!again) {
+        groups = undefined;
+        break;
+      }
+      groups = again;
+      driverLoad = extra + groups.length * buffer.cap;
+    }
+    if (!groups || !(driverLoad < totalLoad - 1e-12)) continue;
+    const settled = slewAt(driverLoad);
+    if (!groups.every((group) => cellMeets(library, buffer, groupLoad(group), settled, query, mode)))
+      continue;
+    const area = groups.length * buffer.area;
+    const relief: LoadRelief = { kind: "buffer", cell: buffer, groups };
+    if (holds(driverLoad)) {
+      if (!bestLegal || area < bestLegal.area - 1e-9) bestLegal = { relief, area };
+      continue;
+    }
+    if (
+      !bestProgress ||
+      driverLoad < bestProgress.driverLoad - 1e-12 ||
+      (Math.abs(driverLoad - bestProgress.driverLoad) <= 1e-12 && area < bestProgress.area - 1e-9)
+    ) {
+      bestProgress = { relief, area, driverLoad };
     }
   }
   let cloned: LoadRelief | undefined;
@@ -1497,14 +1512,17 @@ export function relieveNet(
     );
     const stay = groups?.[groups.length - 1];
     if (groups && groups.length >= 2 && stay) {
-      const stayLoad = extra + stay.reduce((total, index) => total + (sinkCaps[index] ?? 0), 0);
+      const stayLoad = extra + groupLoad(stay);
       if (holds(stayLoad) && stayLoad < totalLoad - 1e-12)
         cloned = { kind: "clone", cell: cloneAs, groups: groups.slice(0, -1) };
     }
   }
-  if (bestBuffer && cloned)
-    return bestArea <= cloned.groups.length * cloned.cell.area + 1e-9 ? bestBuffer : cloned;
-  return bestBuffer ?? cloned;
+  const cloneArea = cloned ? cloned.groups.length * cloned.cell.area : Number.POSITIVE_INFINITY;
+  if (bestLegal && cloned)
+    return bestLegal.area <= cloneArea + 1e-9 ? bestLegal.relief : cloned;
+  if (bestLegal) return bestLegal.relief;
+  if (cloned) return cloned;
+  return bestProgress?.relief;
 }
 
 function largerCell(
@@ -1634,7 +1652,9 @@ function closeElectrical(
 /**
  * Shared by area, delay, and load. Size a driver that misses max capacitance,
  * max transition, or a stated fanout. Then buffer the sinks, or clone the driver
- * when no buffer can take them. Area does not invent the implicit fanout of 4.
+ * when no buffer can take them. Area does not invent a fanout limit when the
+ * query leaves it unset. Delay and load use DEFAULT_MAX_FANOUT. A layer that
+ * only shrinks an illegal load is kept so the next pass can grow the tree.
  */
 export function repairLimits(
   library: Library,

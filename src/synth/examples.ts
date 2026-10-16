@@ -56,7 +56,8 @@ export const EXAMPLES: Example[] = [
   },
   {
     id: "fan",
-    blurb: "a feeds six ANDs. Area stays at drive 1. Delay inserts BUF_4 and BUF_2.",
+    blurb:
+      "a feeds six ANDs. The default fanout of 20 leaves every cell at drive 1. A fanout limit of 4 makes delay insert BUF_4 and BUF_2.",
     netlist: {
       name: "fan",
       inputs: ["a", "b0", "b1", "b2", "b3", "b4", "b5"],
@@ -650,7 +651,7 @@ endmodule
   {
     id: "dec.v",
     blurb:
-      "One output bit per value of a. In load mode each bit of a fans out to every product, so the fanout limit inserts buffers.",
+      "One output bit per value of a. In load mode each bit of a fans out to every product. The default fanout of 20 inserts buffers when that count is past the limit.",
     source: `module dec (
   input [3:0] a,
   output reg [15:0] y

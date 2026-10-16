@@ -89,10 +89,10 @@ In load mode the slew out of a gate is the input slew of the next gate. Past the
 Sift checks three limits after mapping and prints an `over` line for each miss:
 
 - `max_capacitance` of the cell, or `--max-capacitance` when that is tighter
-- `max_fanout` of the cell, or `--max-fanout` when the cell does not have one. The default fallback is 4. The electrical fanout is the sum of the load pin sizes divided by the driver size
+- `max_fanout` of the cell, or `--max-fanout` when the cell does not have one. The default is 20 for every library. The electrical fanout is the sum of the load pin sizes divided by the driver size
 - `max_transition` of the cell, or `--max-transition` when that is tighter
 
-Every mode closes max capacitance and max transition with the same pass. The driver is upsized to the smallest cell in its family that meets the load. If none does, the sinks move onto a buffer. If no buffer can take that load, the driver is cloned and the sinks are split across the copies. An explicit max fanout, from the cell or from `--max-fanout`, is closed the same way. Delay and load mode also repair the implicit fanout limit of 4, then size for delay, before that pass. Area mode leaves the implicit limit alone, so a unit library with no capacitance or transition tables still gets no buffers.
+Every mode closes max capacitance and max transition with the same pass. The driver is upsized to the smallest cell in its family that meets the load. If none does, the sinks move onto a buffer. If no buffer can take that load, the driver is cloned and the sinks are split across the copies. An explicit max fanout, from the cell or from `--max-fanout`, is closed the same way. Delay and load mode also repair the default fanout of 20, then size for delay, before that pass. Area mode leaves fanout unset only when the query and the cells state none, so a direct map of a unit library still gets no fanout buffers. The command line fills the default, so a normal run uses 20.
 
 A flip-flop is sized the same way in every mode when its Q transition is over the limit. If the largest flop still misses, or its Q capacitance is over the limit, its combinational sinks are buffered. An async reset or preset net is sized, buffered, or cloned the same way. Area mode does not upsize a flop to recover setup slack. Delay and load mode do, up to eight steps, and keep a step only when slack improves and hold does not get worse. A flop that already meets both checks stays where it is.
 

@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { EXAMPLES } from "./examples.ts";
 import { STD_LIBRARY } from "./library.ts";
-import { arrivals, limitHits, mapNetlist, repairLimits, type MapGate, type MapMode } from "./map.ts";
+import {
+  arrivals,
+  limitHits,
+  mapNetlist,
+  repairLimits,
+  type MapGate,
+  type MapMode,
+} from "./map.ts";
 import type { Netlist } from "./netlist.ts";
 import { flopsOf, mapDesign } from "./seq.ts";
 import { sky130Hd } from "./sky130hd.ts";
@@ -142,7 +149,8 @@ describe("area map", () => {
     const example = EXAMPLES.find((item) => item.id === "fan");
     assert.ok(example);
     const area = cover(example.netlist, "std", "area");
-    const delay = cover(example.netlist, "std", "delay");
+    const delay = mapNetlist(example.netlist, "std", "delay", { maxFanout: 4 });
+    assert.equal(delay.equiv.mismatches, 0);
     assert.ok(area.cells.every((cell) => cell.endsWith("_1")));
     assert.equal(
       area.cells.some((cell) => cell.startsWith("BUF")),
@@ -215,7 +223,7 @@ describe("area map", () => {
   });
 
   it("applies the fanout fallback when Sky130 omits max_fanout", () => {
-    const arms = 20;
+    const arms = 40;
     const inputs = ["d", ...Array.from({ length: arms }, (_, index) => `c${index}`)];
     const outputs = ["q", ...Array.from({ length: arms }, (_, index) => `y${index}`)];
     const netlist: Netlist = {
@@ -312,6 +320,31 @@ describe("area map", () => {
     const left = repairLimits(stuck, one, [], ["a"], "area");
     assert.equal(left.length, 2);
     assert.equal(capMiss(stuck, left), true);
+    const treeLib = parseLiberty(
+      `library (tree) { ${cell("INVX1", 5, "100", "!A")} ${cell("BUFX1", 1, "2", "A")} }`,
+    );
+    const wide = (): MapGate[] => [
+      { cell: "INVX1", output: "n", inputs: ["a"] },
+      ...Array.from({ length: 6 }, (_, index) => ({
+        cell: "INVX1",
+        output: `y${index}`,
+        inputs: ["n"],
+      })),
+    ];
+    const sourceLimit = new Map([["n", { maxCap: 2, drive: 1 }]]);
+    for (const mode of ["area", "delay"] as const) {
+      const tree = repairLimits(treeLib, wide(), [], ["a"], mode, { sourceLimit });
+      const hits = limitHits(treeLib, tree, [], ["a"], "count", { sourceLimit });
+      assert.equal(
+        hits.some((hit) => hit.cell === "source" && hit.maxCap !== null && hit.cap > hit.maxCap),
+        false,
+        `${mode} source still over`,
+      );
+      assert.ok(
+        tree.filter((gate) => gate.cell === "BUFX1").length >= 2,
+        `${mode} grows a buffer tree`,
+      );
+    }
   });
 
   it("puts the later input on the faster pin", () => {

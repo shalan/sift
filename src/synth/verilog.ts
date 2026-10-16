@@ -2453,6 +2453,24 @@ class Parser {
       }
       return layer[0] ?? "0";
     };
+    /** Binary mux tree. `idx[0]` is the LSB. `sel` chooses `hi`. A missing half is 0. */
+    const muxLayers = (choices: readonly string[], idx: readonly string[]): string => {
+      let layer = [...choices];
+      if (layer.length === 0) return "0";
+      for (let stage = 0; stage < idx.length; stage += 1) {
+        const sel = idx[stage] ?? "0";
+        const next: string[] = [];
+        for (let index = 0; index < layer.length; index += 2) {
+          const lo = layer[index] ?? "0";
+          const hi = layer[index + 1] ?? "0";
+          if (lo === hi || sel === "0") next.push(lo);
+          else if (sel === "1") next.push(hi);
+          else next.push(emit("MUX", [sel, hi, lo]));
+        }
+        layer = next;
+      }
+      return layer[0] ?? "0";
+    };
     const fit = (bits: string[], width: number, signed: boolean): string[] => {
       if (bits.length === width) return bits;
       if (bits.length > width) return bits.slice(0, width);
@@ -2603,6 +2621,7 @@ class Parser {
           const amountW = this.selfWidth(expr.index) ?? 1;
           const idx = lower(expr.index, amountW);
           if (sig.memLo !== null) {
+            // A mux tree per bit loses to one shared address decode on a wide word.
             const hi = sig.memHi ?? sig.memLo;
             const word: string[] = [];
             for (let bit = sig.lsb; bit <= sig.msb; bit += 1) {
@@ -2620,19 +2639,11 @@ class Parser {
             return word;
           }
           const all = readName(expr.name);
-          let acc = "0";
-          for (let value = 0; value < all.length; value += 1) {
-            if (value >= 2 ** idx.length) break;
-            let match = "1";
-            for (let bit = 0; bit < idx.length; bit += 1) {
-              const wanted = ((value >> bit) & 1) === 1;
-              const pin = idx[bit] ?? "0";
-              const ok = wanted ? pin : pin === "0" ? "1" : pin === "1" ? "0" : emit("INV", [pin]);
-              match = match === "1" ? ok : emit("AND", [match, ok]);
-            }
-            const term = emit("AND", [all[value] ?? "0", match]);
-            acc = acc === "0" ? term : emit("OR", [acc, term]);
-          }
+          const span = idx.length < 31 ? 2 ** idx.length : all.length;
+          const choices = Array.from({ length: span }, (_, value) =>
+            value < all.length ? (all[value] ?? "0") : "0",
+          );
+          const acc = muxLayers(choices, idx);
           const named = names?.[0];
           return [named && named !== acc ? connect(named, acc) : acc];
         }
@@ -2769,16 +2780,13 @@ class Parser {
           const span = 1 << amount;
           const out: string[] = [];
           for (let k = 0; k < width; k += 1) {
-            let acc = "0";
+            const choices: string[] = [];
             for (let value = 0; value < span; value += 1) {
               const bit = expr.up ? value + k : value - width + 1 + k;
-              if (bit < sig.lsb || bit > sig.msb) continue;
-              const match = decode(idx, value);
-              if (match === "0") continue;
-              const src = all[bit - sig.lsb] ?? "0";
-              const term = match === "1" ? src : emit("AND", [src, match]);
-              acc = acc === "0" ? term : emit("OR", [acc, term]);
+              if (bit < sig.lsb || bit > sig.msb) choices.push("0");
+              else choices.push(all[bit - sig.lsb] ?? "0");
             }
+            const acc = muxLayers(choices, idx);
             const named = names?.[k];
             out.push(named && named !== acc ? connect(named, acc) : acc);
           }
@@ -4707,7 +4715,12 @@ function flopWarnings(flops: SweptFlop[]): string[] {
     }
     const match = /^(.*)_(\d+)$/.exec(flop.id);
     const base = match?.[1] ?? flop.id;
-    const why = flop.reason === "no reader" ? "no reader" : "not observable";
+    const why =
+      flop.reason === "no reader"
+        ? "no reader"
+        : flop.reason === "constant"
+          ? "constant"
+          : "not observable";
     const key = `${base}\0${why}`;
     const group = unread.get(key) ?? { base, bits: [], why };
     if (match?.[2]) group.bits.push(Number(match[2]));
@@ -4721,7 +4734,11 @@ function flopWarnings(flops: SweptFlop[]): string[] {
       : bits.length === 1
         ? `'${group.base}' [${bits[0]}]`
         : `'${group.base}'`;
-    notes.push(`removed unread flop ${label} — ${group.why}`);
+    notes.push(
+      group.why === "constant"
+        ? `removed constant flop ${label}`
+        : `removed unread flop ${label} — ${group.why}`,
+    );
   }
   return notes;
 }

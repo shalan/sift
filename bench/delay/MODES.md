@@ -2,7 +2,7 @@
 
 Both sides use the same 24 Sky130 HD cells. Period 8 ns, input delay 0, output delay 0. Input slew 0.01 ns, clock slew the same, output load 0.002302 pF (2.302 fF). Wires are pin capacitance only. Activity 0.1, duty 0.5. OpenSTA scores every netlist.
 
-Each Sift run pins `--mode` to area, delay, or load, then runs `--opt area` and `--recover`. Max fanout stays 9. The search may change arithmetic, the adder bias, and clock gating. It does not leave the pinned mode, and it does not turn recovery off. Every map also sizes, buffers, or clones a driver that misses max capacitance or max transition. `area` picks the smallest legal cell. `delay` sizes from a fanout count. `load` uses the same goal as delay, but each gate's delay is the Liberty NLDM table at that gate's input slew and output capacitance. Yosys is `synth -flatten`, `dfflibmap`, then `abc -D 8000` once per design, and that one result is the right-hand side of every table.
+Each Sift run pins `--mode` to area, delay, or load, then runs `--opt area` and `--recover`. Max fanout stays 20. The search may change arithmetic, the adder bias, and clock gating. It does not leave the pinned mode, and it does not turn recovery off. Every map also sizes, buffers, or clones a driver that misses max capacitance or max transition. `area` picks the smallest legal cell. `delay` sizes from a fanout count. `load` uses the same goal as delay, but each gate's delay is the Liberty NLDM table at that gate's input slew and output capacitance. Yosys is `synth -flatten`, `dfflibmap`, then `abc -D 8000` once per design, and that one result is the right-hand side of every table.
 
 Columns are Sift / Yosys. Area is µm². Slack is setup slack, nanoseconds. Slew is the largest pin transition, nanoseconds. Power is OpenSTA total power, microwatts. Runtime is wall clock of the mapper, not of OpenSTA.
 
@@ -10,76 +10,76 @@ Columns are Sift / Yosys. Area is µm². Slack is setup slack, nanoseconds. Slew
 
 | Design | What | Cells S/Y | Area S/Y | Slack S/Y | Slew S/Y | Power µW S/Y | Runtime s S/Y |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| cpu8 | 8-bit CPU, register file, and ALU | 666/693 | 4928.5/4606.9 | 3.419/4.181 | 0.371/0.442 | 506.63/556.68 | 2.68/0.56 |
-| dsp8 | 8-bit DSP slice: product, MAC, delay line | 1183/1069 | 7055.5/6535.0 | 1.729/3.522 | 0.483/0.402 | 603.66/584.44 | 5.38/0.52 |
-| fir10 | 10-tap 8-bit FIR | 4786/4903 | 29283.1/29907.4 | 0.428/1.596 | 0.234/0.298 | 1916.84/1946.17 | 104.04/1.85 |
-| xfir | dual 10-tap inner product | 8698/9081 | 51948.6/53869.2 | -0.073/0.864 | 0.234/0.297 | 2771.54/2845.83 | 228.54/3.47 |
-| uart | UART | 308/223 | 2119.5/1680.4 | 6.487/6.534 | 0.315/0.417 | 271.90/273.27 | 1.32/0.23 |
-| fifo | four-word FIFO | 286/172 | 1996.9/1686.6 | 6.564/6.182 | 0.365/0.502 | 257.02/247.75 | 0.79/0.22 |
-| mem | 16×8 register file | 788/506 | 6145.9/5167.5 | 6.938/6.733 | 0.277/0.502 | 822.25/776.26 | 1.10/0.28 |
-| pwm | PWM compare | 27/29 | 182.7/205.2 | 7.269/7.230 | 0.124/0.146 | 24.93/25.50 | 0.28/0.14 |
-| lfsr | LFSR | 28/26 | 267.8/240.2 | 7.082/7.253 | 0.156/0.164 | 47.05/45.74 | 0.23/0.13 |
-| gray | Gray-code counter | 17/18 | 156.4/158.9 | 7.231/7.241 | 0.165/0.163 | 24.27/24.35 | 0.22/0.12 |
-| uart_apb | UART-to-APB master, not the 256-bit system | 2341/1407 | 17852.1/13455.4 | 3.284/5.193 | 0.435/0.413 | 2166.63/1992.72 | 48.42/0.52 |
-| risc8 | PIC16C5x-compatible CPU | 6944/3734 | 45138.3/27990.6 | 0.992/2.893 | 0.353/0.423 | 4923.50/4255.25 | 1977.97/3.17 |
-| pic16 | PIC16C5x, clock port renamed clk | 7383/4074 | 45995.4/31061.0 | 1.815/1.774 | 0.358/0.430 | 5325.98/4768.47 | 159.06/1.54 |
-| pic1826 | PIC16F1826-style CPU, ROM and RAM stubbed | 10762/3942 | 71248.3/28901.5 | 1.450/3.403 | 0.407/0.439 | 8172.03/4182.86 | 485.98/2.03 |
-| p16c5x | Morris P16C5x, clock port renamed clk | 8881/3665 | 51578.2/32222.2 | 2.411/3.829 | 0.431/0.525 | 5472.32/4666.39 | 331.69/1.38 |
-| arlet6502 | Arlet 6502 | 3667/1667 | 20445.9/10163.5 | 0.684/2.997 | 0.816/0.506 | 1479.68/1061.75 | 58.38/1.75 |
-| x18 | Arlet X18, program image is the address | 8009/6781 | 55503.2/43889.6 | 3.175/-0.109 | 0.491/0.466 | 5980.08/5572.48 | 459.71/3.36 |
-| chacha | memory-mapped ChaCha | 23595/16828 | 156143.5/115718.5 | -4.251/-10.316 | 0.967/0.459 | 14853.01/13457.72 | 475.00/7.62 |
-| **sum** | 18 designs | 88369/58818 | 567989.7/407459.5 | | | 55619.33/47283.61 | 4340.8/28.9 |
+| cpu8 | 8-bit CPU, register file, and ALU | 659/693 | 4847.1/4606.9 | 3.414/4.181 | 0.729/0.442 | 502.24/556.68 | 1.16/0.39 |
+| dsp8 | 8-bit DSP slice: product, MAC, delay line | 1174/1069 | 6920.4/6535.0 | 1.579/3.522 | 0.694/0.402 | 596.24/584.44 | 2.24/0.50 |
+| fir10 | 10-tap 8-bit FIR | 4623/4903 | 28234.6/29907.4 | 0.347/1.596 | 0.512/0.298 | 1866.83/1946.17 | 6.35/1.47 |
+| xfir | dual 10-tap inner product | 8695/9081 | 51525.7/53869.2 | -0.206/0.864 | 0.512/0.297 | 2741.96/2845.83 | 27.58/3.16 |
+| uart | UART | 303/223 | 2062.0/1680.4 | 6.161/6.534 | 0.808/0.417 | 269.00/273.27 | 0.95/0.19 |
+| fifo | four-word FIFO | 282/172 | 1939.4/1686.6 | 6.422/6.182 | 0.627/0.502 | 254.06/247.75 | 0.43/0.17 |
+| mem | 16×8 register file | 780/506 | 6000.8/5167.5 | 6.740/6.733 | 0.695/0.502 | 815.51/776.26 | 0.66/0.24 |
+| pwm | PWM compare | 27/29 | 182.7/205.2 | 7.269/7.230 | 0.124/0.146 | 24.93/25.50 | 0.20/0.12 |
+| lfsr | LFSR | 28/26 | 267.8/240.2 | 7.082/7.253 | 0.156/0.164 | 47.05/45.74 | 0.19/0.11 |
+| gray | Gray-code counter | 17/18 | 156.4/158.9 | 7.231/7.241 | 0.165/0.163 | 24.27/24.35 | 0.18/0.12 |
+| uart_apb | UART-to-APB master, not the 256-bit system | 2273/1407 | 17456.7/13455.4 | 3.284/5.193 | 0.523/0.413 | 2148.74/1992.72 | 4.92/0.54 |
+| risc8 | PIC16C5x-compatible CPU | 6658/3734 | 43465.4/27990.6 | 0.540/2.893 | 0.755/0.423 | 4846.04/4255.25 | 16.37/1.62 |
+| pic16 | PIC16C5x, clock port renamed clk | 7132/4074 | 44970.6/31061.0 | 1.167/1.774 | 0.783/0.430 | 5289.88/4768.47 | 14.69/1.43 |
+| pic1826 | PIC16F1826-style CPU, ROM and RAM stubbed | 10162/3942 | 67862.6/28901.5 | 0.732/3.403 | 1.023/0.439 | 8026.99/4182.86 | 32.32/1.90 |
+| p16c5x | Morris P16C5x, clock port renamed clk | 8554/3665 | 49701.4/32222.2 | 2.052/3.829 | 0.786/0.525 | 5394.02/4666.39 | 12.90/1.37 |
+| arlet6502 | Arlet 6502 | 3538/1667 | 19651.3/10163.5 | 0.915/2.997 | 0.909/0.506 | 1445.46/1061.75 | 16.52/1.01 |
+| x18 | Arlet X18, program image is the address | 7666/6781 | 53550.1/43889.6 | 2.558/-0.109 | 0.925/0.466 | 5890.39/5572.48 | 31.27/2.17 |
+| chacha | memory-mapped ChaCha | 22800/16828 | 152332.3/115718.5 | -2.920/-10.316 | 0.998/0.459 | 14709.78/13457.72 | 270.40/5.53 |
+| **sum** | 18 designs | 85371/58818 | 551127.3/407459.5 | | | 54893.38/47283.61 | 439.3/22.0 |
 
-Yosys is smaller in area on 14 of 18, uses fewer cells on 13, and uses less power on 12. Sift has more setup slack on 6.
+Yosys is smaller in area on 14 of 18, uses fewer cells on 13, and uses less power on 12. Sift has more setup slack on 5.
 
 ## delay
 
 | Design | What | Cells S/Y | Area S/Y | Slack S/Y | Slew S/Y | Power µW S/Y | Runtime s S/Y |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| cpu8 | 8-bit CPU, register file, and ALU | 1165/693 | 6732.7/4606.9 | 4.595/4.181 | 0.357/0.442 | 601.03/556.68 | 8.15/0.56 |
-| dsp8 | 8-bit DSP slice: product, MAC, delay line | 1982/1069 | 13187.6/6535.0 | 2.566/3.522 | 0.361/0.402 | 917.10/584.44 | 10.52/0.52 |
-| fir10 | 10-tap 8-bit FIR | 8943/4903 | 72498.3/29907.4 | 1.156/1.596 | 0.250/0.298 | 4228.43/1946.17 | 63.99/1.85 |
-| xfir | dual 10-tap inner product | 16695/9081 | 137607.0/53869.2 | 0.664/0.864 | 0.250/0.297 | 7364.30/2845.83 | 83.88/3.47 |
-| uart | UART | 522/223 | 2795.2/1680.4 | 6.578/6.534 | 0.234/0.417 | 297.43/273.27 | 6.45/0.23 |
-| fifo | four-word FIFO | 481/172 | 2643.8/1686.6 | 6.527/6.182 | 0.256/0.502 | 284.57/247.75 | 3.10/0.22 |
-| mem | 16×8 register file | 1246/506 | 7683.6/5167.5 | 6.801/6.733 | 0.274/0.502 | 904.34/776.26 | 7.24/0.28 |
-| pwm | PWM compare | 44/29 | 247.7/205.2 | 7.103/7.230 | 0.207/0.146 | 27.18/25.50 | 0.29/0.14 |
-| lfsr | LFSR | 44/26 | 299.0/240.2 | 7.196/7.253 | 0.101/0.164 | 48.10/45.74 | 0.25/0.13 |
-| gray | Gray-code counter | 35/18 | 202.7/158.9 | 7.131/7.241 | 0.207/0.163 | 26.17/24.35 | 0.22/0.12 |
-| uart_apb | UART-to-APB master, not the 256-bit system | 3683/1407 | 22856.9/13455.4 | 4.759/5.193 | 0.485/0.413 | 2382.08/1992.72 | 31.64/0.52 |
-| risc8 | PIC16C5x-compatible CPU | 9145/3734 | 53606.4/27990.6 | 2.992/2.893 | 0.409/0.423 | 5397.11/4255.25 | 605.42/3.17 |
-| pic16 | PIC16C5x, clock port renamed clk | 9942/4074 | 58088.2/31061.0 | 3.355/1.774 | 0.461/0.430 | 5890.13/4768.47 | 93.72/1.54 |
-| pic1826 | PIC16F1826-style CPU, ROM and RAM stubbed | 13304/3942 | 82360.2/28901.5 | 3.066/3.403 | 0.483/0.439 | 8854.81/4182.86 | 182.35/2.03 |
-| p16c5x | Morris P16C5x, clock port renamed clk | 10425/3665 | 60284.1/32222.2 | 4.161/3.829 | 0.407/0.525 | 5903.69/4666.39 | 102.22/1.38 |
-| arlet6502 | Arlet 6502 | 5833/1667 | 31747.9/10163.5 | 2.936/2.997 | 0.358/0.506 | 2015.18/1061.75 | 48.63/1.75 |
-| x18 | Arlet X18, program image is the address | 11617/6781 | 71362.2/43889.6 | 1.430/-0.109 | 0.497/0.466 | 6843.40/5572.48 | 204.47/3.36 |
-| chacha | memory-mapped ChaCha | 42110/16828 | 260501.1/115718.5 | -1.487/-10.316 | 0.295/0.459 | 19983.41/13457.72 | 606.87/7.62 |
-| **sum** | 18 designs | 137216/58818 | 884704.7/407459.5 | | | 71968.45/47283.61 | 2059.4/28.9 |
+| cpu8 | 8-bit CPU, register file, and ALU | 1113/693 | 6353.6/4606.9 | 4.436/4.181 | 0.371/0.442 | 582.00/556.68 | 1.63/0.39 |
+| dsp8 | 8-bit DSP slice: product, MAC, delay line | 1897/1069 | 12598.3/6535.0 | 2.290/3.522 | 0.473/0.402 | 886.26/584.44 | 3.42/0.50 |
+| fir10 | 10-tap 8-bit FIR | 8733/4903 | 70764.1/29907.4 | 0.961/1.596 | 0.418/0.298 | 4133.70/1946.17 | 15.95/1.47 |
+| xfir | dual 10-tap inner product | 16315/9081 | 135103.3/53869.2 | 0.618/0.864 | 0.421/0.297 | 7239.35/2845.83 | 34.47/3.16 |
+| uart | UART | 497/223 | 2637.5/1680.4 | 6.382/6.534 | 0.535/0.417 | 289.66/273.27 | 1.18/0.19 |
+| fifo | four-word FIFO | 451/172 | 2484.9/1686.6 | 6.332/6.182 | 0.527/0.502 | 276.78/247.75 | 0.53/0.17 |
+| mem | 16×8 register file | 1163/506 | 7078.0/5167.5 | 6.534/6.733 | 0.892/0.502 | 866.93/776.26 | 1.18/0.24 |
+| pwm | PWM compare | 42/29 | 240.2/205.2 | 7.202/7.230 | 0.167/0.146 | 26.91/25.50 | 0.21/0.12 |
+| lfsr | LFSR | 44/26 | 299.0/240.2 | 7.196/7.253 | 0.101/0.164 | 48.10/45.74 | 0.27/0.11 |
+| gray | Gray-code counter | 34/18 | 198.9/158.9 | 7.234/7.241 | 0.167/0.163 | 26.04/24.35 | 0.19/0.12 |
+| uart_apb | UART-to-APB master, not the 256-bit system | 3463/1407 | 21325.5/13455.4 | 4.611/5.193 | 0.996/0.413 | 2307.99/1992.72 | 6.04/0.54 |
+| risc8 | PIC16C5x-compatible CPU | 8531/3734 | 49267.3/27990.6 | 2.564/2.893 | 0.684/0.423 | 5183.89/4255.25 | 21.04/1.62 |
+| pic16 | PIC16C5x, clock port renamed clk | 9382/4074 | 54005.5/31061.0 | 2.910/1.774 | 0.762/0.430 | 5685.11/4768.47 | 17.02/1.43 |
+| pic1826 | PIC16F1826-style CPU, ROM and RAM stubbed | 12260/3942 | 75070.7/28901.5 | 2.697/3.403 | 0.514/0.439 | 8496.49/4182.86 | 40.92/1.90 |
+| p16c5x | Morris P16C5x, clock port renamed clk | 9671/3665 | 54756.3/32222.2 | 3.173/3.829 | 0.898/0.525 | 5624.86/4666.39 | 16.64/1.37 |
+| arlet6502 | Arlet 6502 | 5512/1667 | 29350.6/10163.5 | 2.524/2.997 | 0.580/0.506 | 1894.40/1061.75 | 18.36/1.01 |
+| x18 | Arlet X18, program image is the address | 10883/6781 | 65586.7/43889.6 | 1.162/-0.109 | 0.513/0.466 | 6556.65/5572.48 | 28.70/2.17 |
+| chacha | memory-mapped ChaCha | 40116/16828 | 246924.3/115718.5 | -2.454/-10.316 | 0.908/0.459 | 19325.20/13457.72 | 348.75/5.53 |
+| **sum** | 18 designs | 130107/58818 | 834044.9/407459.5 | | | 69450.32/47283.61 | 556.5/22.0 |
 
-Yosys is smaller in area on 18 of 18, uses fewer cells on 18, and uses less power on 18. Sift has more setup slack on 9.
+Yosys is smaller in area on 18 of 18, uses fewer cells on 18, and uses less power on 18. Sift has more setup slack on 5.
 
 ## load
 
 | Design | What | Cells S/Y | Area S/Y | Slack S/Y | Slew S/Y | Power µW S/Y | Runtime s S/Y |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| cpu8 | 8-bit CPU, register file, and ALU | 777/693 | 5622.9/4606.9 | 3.525/4.181 | 0.306/0.442 | 529.04/556.68 | 2.02/0.56 |
-| dsp8 | 8-bit DSP slice: product, MAC, delay line | 1300/1069 | 7553.5/6535.0 | 1.889/3.522 | 0.469/0.402 | 623.99/584.44 | 3.48/0.52 |
-| fir10 | 10-tap 8-bit FIR | 5736/4903 | 31746.7/29907.4 | 0.565/1.596 | 0.259/0.298 | 2013.70/1946.17 | 21.57/1.85 |
-| xfir | dual 10-tap inner product | 10553/9081 | 56963.4/53869.2 | 0.086/0.864 | 0.259/0.297 | 2958.32/2845.83 | 34.29/3.47 |
-| uart | UART | 348/223 | 2238.4/1680.4 | 6.456/6.534 | 0.356/0.417 | 279.54/273.27 | 1.75/0.23 |
-| fifo | four-word FIFO | 353/172 | 2259.7/1686.6 | 6.333/6.182 | 0.256/0.502 | 270.92/247.75 | 0.70/0.22 |
-| mem | 16×8 register file | 949/506 | 6391.1/5167.5 | 6.632/6.733 | 0.362/0.502 | 851.91/776.26 | 1.38/0.28 |
-| pwm | PWM compare | 27/29 | 185.2/205.2 | 7.269/7.230 | 0.139/0.146 | 24.96/25.50 | 0.28/0.14 |
-| lfsr | LFSR | 28/26 | 267.8/240.2 | 7.082/7.253 | 0.156/0.164 | 47.05/45.74 | 0.24/0.13 |
-| gray | Gray-code counter | 17/18 | 156.4/158.9 | 7.231/7.241 | 0.165/0.163 | 24.27/24.35 | 0.21/0.12 |
-| uart_apb | UART-to-APB master, not the 256-bit system | 2307/1407 | 18799.3/13455.4 | 5.199/5.193 | 0.368/0.413 | 2177.31/1992.72 | 6.62/0.52 |
-| risc8 | PIC16C5x-compatible CPU | 4233/3734 | 32695.1/27990.6 | 0.508/2.893 | 1.356/0.423 | 5354.76/4255.25 | 73.64/3.17 |
-| pic16 | PIC16C5x, clock port renamed clk | 3933/4074 | 31569.0/31061.0 | 1.131/1.774 | 1.253/0.430 | 5631.67/4768.47 | 39.39/1.54 |
-| pic1826 | PIC16F1826-style CPU, ROM and RAM stubbed | 5219/3942 | 45922.8/28901.5 | 0.733/3.403 | 3.847/0.439 | 8924.14/4182.86 | 116.43/2.03 |
-| p16c5x | Morris P16C5x, clock port renamed clk | 7410/3665 | 45760.1/32222.2 | 3.507/3.829 | 0.513/0.525 | 5280.81/4666.39 | 72.09/1.38 |
-| arlet6502 | Arlet 6502 | 4105/1667 | 21852.2/10163.5 | 1.548/2.997 | 0.424/0.506 | 1535.70/1061.75 | 37.04/1.75 |
-| x18 | Arlet X18, program image is the address | 8102/6781 | 54202.0/43889.6 | 0.137/-0.109 | 0.483/0.466 | 5961.06/5572.48 | 163.44/3.36 |
-| chacha | memory-mapped ChaCha | 24955/16828 | 156830.4/115718.5 | -1.722/-10.316 | 0.492/0.459 | 14971.74/13457.72 | 591.89/7.62 |
-| **sum** | 18 designs | 80352/58818 | 521015.9/407459.5 | | | 57460.89/47283.61 | 1166.4/28.9 |
+| cpu8 | 8-bit CPU, register file, and ALU | 710/693 | 5326.4/4606.9 | 3.096/4.181 | 0.834/0.442 | 516.94/556.68 | 1.25/0.39 |
+| dsp8 | 8-bit DSP slice: product, MAC, delay line | 1248/1069 | 7255.7/6535.0 | 1.583/3.522 | 0.802/0.402 | 610.12/584.44 | 1.97/0.50 |
+| fir10 | 10-tap 8-bit FIR | 5307/4903 | 30132.6/29907.4 | 0.296/1.596 | 0.551/0.298 | 1951.14/1946.17 | 8.22/1.47 |
+| xfir | dual 10-tap inner product | 10041/9081 | 55037.8/53869.2 | -0.164/0.864 | 0.551/0.297 | 2883.78/2845.83 | 19.97/3.16 |
+| uart | UART | 330/223 | 2133.3/1680.4 | 6.235/6.534 | 0.786/0.417 | 274.44/273.27 | 0.94/0.19 |
+| fifo | four-word FIFO | 331/172 | 2164.6/1686.6 | 6.221/6.182 | 0.564/0.502 | 266.84/247.75 | 0.41/0.17 |
+| mem | 16×8 register file | 882/506 | 6033.3/5167.5 | 5.801/6.733 | 0.785/0.502 | 836.28/776.26 | 0.69/0.24 |
+| pwm | PWM compare | 27/29 | 185.2/205.2 | 7.269/7.230 | 0.139/0.146 | 24.96/25.50 | 0.21/0.12 |
+| lfsr | LFSR | 28/26 | 267.8/240.2 | 7.082/7.253 | 0.156/0.164 | 47.05/45.74 | 0.23/0.11 |
+| gray | Gray-code counter | 17/18 | 156.4/158.9 | 7.231/7.241 | 0.165/0.163 | 24.27/24.35 | 0.18/0.12 |
+| uart_apb | UART-to-APB master, not the 256-bit system | 2160/1407 | 18179.9/13455.4 | 5.199/5.193 | 0.954/0.413 | 2152.65/1992.72 | 4.62/0.54 |
+| risc8 | PIC16C5x-compatible CPU | 3958/3734 | 31236.2/27990.6 | 0.251/2.893 | 1.350/0.423 | 5289.37/4255.25 | 12.29/1.62 |
+| pic16 | PIC16C5x, clock port renamed clk | 3670/4074 | 30427.9/31061.0 | 0.564/1.774 | 1.266/0.430 | 5586.01/4768.47 | 10.41/1.43 |
+| pic1826 | PIC16F1826-style CPU, ROM and RAM stubbed | 4777/3942 | 44251.2/28901.5 | -0.180/3.403 | 3.848/0.439 | 8858.36/4182.86 | 25.90/1.90 |
+| p16c5x | Morris P16C5x, clock port renamed clk | 6725/3665 | 43173.9/32222.2 | 3.016/3.829 | 0.669/0.525 | 5181.59/4666.39 | 12.98/1.37 |
+| arlet6502 | Arlet 6502 | 3760/1667 | 20363.3/10163.5 | 0.889/2.997 | 0.822/0.506 | 1474.48/1061.75 | 10.98/1.01 |
+| x18 | Arlet X18, program image is the address | 7644/6781 | 52416.5/43889.6 | 1.862/-0.109 | 0.937/0.466 | 5890.77/5572.48 | 28.74/2.17 |
+| chacha | memory-mapped ChaCha | 23546/16828 | 151417.7/115718.5 | -2.335/-10.316 | 0.762/0.459 | 14769.81/13457.72 | 344.66/5.53 |
+| **sum** | 18 designs | 75161/58818 | 500159.7/407459.5 | | | 56638.85/47283.61 | 484.6/22.0 |
 
-Yosys is smaller in area on 16 of 18, uses fewer cells on 15, and uses less power on 15. Sift has more setup slack on 5.
+Yosys is smaller in area on 15 of 18, uses fewer cells on 15, and uses less power on 15. Sift has more setup slack on 5.

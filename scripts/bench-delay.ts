@@ -40,7 +40,7 @@ const PERIOD_NS = 8;
 const PERIOD_PS = PERIOD_NS * 1000;
 const ACTIVITY = 0.1;
 const DUTY = 0.5;
-const SIFT_FANOUT = 9;
+const SIFT_FANOUT = 20;
 
 const DESIGNS: { id: string; note: string; file?: string; example?: string; top?: string }[] = [
   { id: "cpu8", note: "8-bit CPU, register file, and ALU", file: "designs/cpu8.v" },

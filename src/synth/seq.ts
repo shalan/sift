@@ -2075,7 +2075,7 @@ export function mapDesign(
         combo.drives,
         cloud.inputs,
         mode,
-        query,
+        { ...query, sourceLimit },
         drivenSlews(),
       );
       if (!qOver() || shapeOf() === before) break;
